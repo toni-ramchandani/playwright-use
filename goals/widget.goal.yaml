@@ -1,0 +1,10 @@
+name: "Modern Widgets Demo"
+url: "https://mui.com/material-ui/react-autocomplete/"
+steps:
+  - description: "Select 'The Godfather' in combobox 'Movie'"
+  - description: "Navigate to https://flatpickr.js.org/examples/"
+  - description: "Set Start Date to 2025-08-07"
+  - description: "Navigate to https://the-internet.herokuapp.com/upload"
+  - description: "Upload file 'fixtures/sample.txt' using 'Choose File' button"
+assertions:
+  - "URL contains 'upload'"
