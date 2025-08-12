@@ -1,0 +1,13 @@
+global:
+  # generic aliases (examples; keep minimal)
+  submit: ["button[type='submit']", "button:has-text('Submit')"]
+
+www.saucedemo.com:
+  cart icon: ["[data-test='shopping-cart-link']", ".shopping_cart_link", "#shopping_cart_container a"]
+  cart: ["[data-test='shopping-cart-link']"]
+  checkout: ["[data-test='checkout']", "#checkout", "button:has-text('Checkout')"]
+  continue: ["[data-test='continue']", "#continue", "button:has-text('Continue')"]
+  finish: ["[data-test='finish']", "#finish", "button:has-text('Finish')"]
+  first name: ["#first-name", "[data-test='firstName']", "input[name*='first' i]"]
+  last name: ["#last-name", "[data-test='lastName']", "input[name*='last' i]"]
+  zip code: ["#postal-code", "[data-test='postalCode']", "input[name*='postal' i]"] 
