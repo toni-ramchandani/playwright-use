@@ -1,6 +1,6 @@
 # playwright-use
 
-Natural-language UI tests, no imperative code. Playwright + Azure OpenAI.
+Natural-language UI tests, no imperative code. Playwright + AI.
 
 ## Setup
 ```bash
