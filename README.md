@@ -2,6 +2,9 @@
 
 Natural-language UI tests, no imperative code. Playwright + AI.
 
+https://github.com/user-attachments/assets/1aa826fd-e05b-462b-a717-8a4b448a38ed
+
+
 ## Setup
 ```bash
 python -m venv .venv && . .venv/Scripts/activate   # Windows PowerShell
