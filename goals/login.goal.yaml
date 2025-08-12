@@ -1,0 +1,14 @@
+name: "Login and Checkout Flow"
+url: "https://www.saucedemo.com"
+steps:
+  - description: "Open the site"
+  - description: "Log in with username 'standard_user' and password 'secret_sauce'"
+  - description: "Add 'Sauce Labs Backpack' to the cart"
+  - description: "Go to cart"
+  - description: "Click checkout"
+  - description: "Fill in first name 'Toni', last name 'Ramchandani', zip code '411001'"
+  - description: "Click Continue"
+  - description: "Click Finish"
+assertions:
+  - "The final page shows a confirmation that order is placed"
+  - "URL contains 'checkout-complete'"
