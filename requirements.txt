@@ -1,0 +1,9 @@
+playwright==1.47.0
+openai==0.28.1
+pyyaml==6.0.2
+jinja2==3.1.4
+python-dotenv==1.0.1
+
+# Optional LLM providers (uncomment if you use them)
+# anthropic==0.34.0
+# groq==0.8.0
