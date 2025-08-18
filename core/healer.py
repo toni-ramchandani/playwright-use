@@ -102,6 +102,12 @@ def _input_guessers(page: Page, hint: str):
             page.locator("input[name*='zip'], input[id*='zip']"),
             page.locator("input[name*='postal'], input[id*='postal']"),
         ]
+    if "address" in h:
+        cands += [
+            page.locator("textarea[ng-model*='Adress' i]"),
+            page.locator("#address, #Address"),
+            page.locator("textarea[name*='address' i], textarea[id*='address' i]"),
+        ]
     for loc in cands:
         try:
             if loc and loc.count() > 0:
@@ -199,6 +205,16 @@ def find_input(page: Page, hint: str):
     except:
         pass
 
+    # 5b) Label → following textarea
+    try:
+        el = page.locator(
+            f"xpath=(//label[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{hint.lower()}')]/following::textarea)[1]"
+        ).first
+        if el and el.count() > 0:
+            return el
+    except:
+        pass
+
     # 6) FINAL fallback: first visible textarea (handles generic 'Message')
     ta = _first_visible_textarea(page)
     if ta:
@@ -208,12 +224,98 @@ def find_input(page: Page, hint: str):
 
 # -------- adapters: combobox / date / file upload --------
 def combo_select(page: Page, hint: str, value: str):
-    cb = page.get_by_role("combobox", name=re.compile(hint, re.I))
+    rx = re.compile(hint, re.I)
+    # 1) Native <select> by label/name/id
+    sel = page.get_by_label(rx)
+    if sel and sel.count() > 0 and sel.first.evaluate("e => e.tagName.toLowerCase()") == "select":
+        try:
+            sel.first.select_option(label=value)
+            return
+        except:
+            pass
+    # 1.1) Fallback to locating select by id/name containing hint
+    try:
+        sel2 = page.locator(f"select[id*='{hint}' i], select[name*='{hint}' i]").first
+        if sel2 and sel2.count() > 0:
+            sel2.select_option(label=value)
+            return
+    except:
+        pass
+    # 1.2) Fallback to locating select by placeholder
+    try:
+        sel3 = page.locator(f"select[placeholder*='{hint}' i]").first
+        if sel3 and sel3.count() > 0:
+            sel3.select_option(label=value)
+            return
+    except:
+        pass
+
+    # 2) Custom widgets (select2/msdd): click trigger, type, choose option
+    use_custom = ("language" in hint.lower()) or ("select country" in hint.lower())
+    trigger = None
+    if use_custom:
+        trigger = (
+            page.locator("#msdd").first or
+            page.locator(".select2-selection").first or
+            page.get_by_role("combobox", name=rx).first
+        )
+    if trigger and trigger.count() > 0:
+        trigger.click()
+        try:
+            typebox = page.locator(".select2-search__field, input[type='search']").first
+            if typebox and typebox.count() > 0:
+                typebox.fill(value)
+            else:
+                page.keyboard.type(value)
+        except:
+            page.keyboard.type(value)
+        opts = page.get_by_role("option", name=re.compile(value, re.I))
+        if opts.count() == 0:
+            opts = page.get_by_text(re.compile(f"^{re.escape(value)}$", re.I))
+        if opts.count() == 0:
+            # select2 results list
+            opts = page.locator(
+                f".select2-results__option:has-text('{value}'), .select2-results li:has-text('{value}')"
+            )
+        if opts.count() == 0:
+            # try open dropdown options container and search text nodes
+            opts = page.locator(f".ui-autocomplete li:has-text('{value}')").first
+            if opts and opts.count() > 0:
+                opts.click()
+                # Attempt to close dropdown after selection
+                try:
+                    page.keyboard.press("Escape")
+                except:
+                    pass
+                return
+        if opts.count() == 0:
+            # Press Enter to confirm the first suggestion
+            try:
+                page.keyboard.press("Enter")
+                page.keyboard.press("Escape")
+                return
+            except:
+                pass
+            raise RuntimeError(f"Option not found in combobox: {value}")
+        opts.first.click()
+        # Attempt to close dropdown after selection
+        try:
+            page.keyboard.press("Escape")
+        except:
+            pass
+        # Fallback: click outside if still open
+        try:
+            page.mouse.click(5, 5)
+        except:
+            pass
+        return
+
+    # 3) Last resort: previous behavior on role option lists
+    cb = page.get_by_role("combobox", name=rx)
     if cb.count() == 0:
         cb = find_in_frames(page, hint)
     if cb is None or cb.count() == 0:
         raise RuntimeError(f"Combobox not found: {hint}")
-
     cb.first.click()
     try:
         inner_input = cb.locator("input").first
@@ -223,7 +325,6 @@ def combo_select(page: Page, hint: str, value: str):
             page.keyboard.type(value)
     except:
         page.keyboard.type(value)
-
     options = page.get_by_role("option", name=re.compile(value, re.I))
     if options.count() == 0:
         options = page.get_by_text(re.compile(f"^{re.escape(value)}$", re.I))
@@ -344,22 +445,29 @@ def find_clickable(page: Page, hint: str):
 
     # 3) data-test(id)
     try:
-        sel = f"[data-testid*='{hint}'],[data-test*='{hint}']"
-        loc = page.locator(sel).first
+        loc = page.locator(f"[data-testid*='{hint}'],[data-test*='{hint}']").first
         if loc.count() > 0 and loc.is_visible():
             try: update_aliases(page.url, hint, sel)
             except: pass
             return loc
     except: pass
 
+    # 3.25) Inputs by id/name/placeholder/value (e.g., datepicker1/2)
+    try:
+        loc = page.locator(
+            f"input[id*='{hint}' i], input[name*='{hint}' i], input[placeholder*='{hint}' i], input[value*='{hint}' i]"
+        ).first
+        if loc.count() > 0 and loc.is_visible():
+            return loc
+    except: pass
+
     # 3.5) Attributes: id/name/title/class on common clickable elements
     try:
-        sel = (
+        loc = page.locator(
             f"a[id*='{hint}' i], a[name*='{hint}' i], a[title*='{hint}' i], a[class*='{hint}' i], "
             f"button[id*='{hint}' i], button[name*='{hint}' i], button[title*='{hint}' i], button[class*='{hint}' i], "
             f"[role=button][id*='{hint}' i], [data-testid*='{hint}'], [data-test*='{hint}'], [role=link][id*='{hint}' i]"
-        )
-        loc = page.locator(sel).first
+        ).first
         if loc.count() > 0 and loc.is_visible():
             try: update_aliases(page.url, hint, sel)
             except: pass
@@ -433,7 +541,10 @@ def find_clickable(page: Page, hint: str):
     return None
 
 def _find_checkbox(page, hint: str):
-    rx = re.compile(hint or "", re.I)
+    raw = (hint or "").strip()
+    # Normalize common suffix words that are not part of the accessible name
+    norm = re.sub(r"\b(checkbox|radio|button|option|select|multiselect)\b", "", raw, flags=re.I).strip()
+    rx = re.compile(norm or raw or "", re.I)
     try:
         loc = page.get_by_role("checkbox", name=rx)
         if loc.count() > 0:
@@ -443,7 +554,7 @@ def _find_checkbox(page, hint: str):
     # Prefer direct input matches by name/aria-label first
     try:
         loc = page.locator(
-            f"input[type='checkbox'][name*='{hint}' i], input[type='checkbox'][aria-label*='{hint}' i]"
+            f"input[type='checkbox'][name*='{norm}' i], input[type='checkbox'][aria-label*='{norm}' i], input[type='checkbox'][value*='{norm}' i], input[type='checkbox'][title*='{norm}' i]"
         ).first
         if loc and loc.count() > 0:
             return loc
@@ -453,7 +564,7 @@ def _find_checkbox(page, hint: str):
     try:
         loc = page.locator(
             "xpath=(//label[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), "
-            + f"'{(hint or '').lower()}')]//input[@type='checkbox'])[1]"
+            + f"'{(norm or '').lower()}')]//input[@type='checkbox'])[1]"
         ).first
         if loc and loc.count() > 0:
             return loc
@@ -462,9 +573,9 @@ def _find_checkbox(page, hint: str):
     try:
         loc = page.locator(
             "xpath=(//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), "
-            + f"'{(hint or '').lower()}')]/following::input[@type='checkbox'] | "
+            + f"'{(norm or '').lower()}')]/following::input[@type='checkbox'] | "
             "//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), "
-            + f"'{(hint or '').lower()}')]/preceding::input[@type='checkbox'])[1]"
+            + f"'{(norm or '').lower()}')]/preceding::input[@type='checkbox'])[1]"
         ).first
         if loc and loc.count() > 0:
             return loc
@@ -478,6 +589,49 @@ def _find_checkbox(page, hint: str):
                 cb = container.locator("input[type='checkbox']").first
                 if cb and cb.count() > 0:
                     return cb
+    except:
+        pass
+    return None
+
+def _find_radio(page, hint: str):
+    raw = (hint or "").strip()
+    norm = re.sub(r"\b(checkbox|radio|button|option|select|multiselect)\b", "", raw, flags=re.I).strip()
+    rx = re.compile(norm or raw or "", re.I)
+    try:
+        loc = page.get_by_role("radio", name=rx)
+        if loc.count() > 0:
+            return loc.first
+    except:
+        pass
+    try:
+        loc = page.locator(
+            f"input[type='radio'][name*='{norm}' i], input[type='radio'][aria-label*='{norm}' i], input[type='radio'][value*='{norm}' i], input[type='radio'][title*='{norm}' i]"
+        ).first
+        if loc and loc.count() > 0:
+            return loc
+    except:
+        pass
+    try:
+        loc = page.locator(
+            "xpath=(//label[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), "
+            + f"'{(norm or '').lower()}')]//input[@type='radio'])[1]"
+        ).first
+        if loc and loc.count() > 0:
+            return loc
+    except:
+        pass
+    # Token fallback: try individual words like 'male'/'female'
+    try:
+        tokens = [t for t in re.findall(r"[a-zA-Z]+", norm or raw) if len(t) >= 3]
+        for t in tokens:
+            loc = page.get_by_role("radio", name=re.compile(t, re.I))
+            if loc.count() > 0:
+                return loc.first
+            loc = page.locator(
+                f"input[type='radio'][value*='{t}' i], input[type='radio'][aria-label*='{t}' i]"
+            ).first
+            if loc and loc.count() > 0:
+                return loc
     except:
         pass
     return None
