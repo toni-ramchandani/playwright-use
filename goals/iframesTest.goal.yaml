@@ -1,0 +1,21 @@
+name: "Automation Demo Frames – Single and Nested"
+url: "https://demo.automationtesting.in/Frames.html"
+
+steps:
+  # ---------- Single Iframe ----------
+  - description: "Ensure the page is loaded and the **Single Iframe** tab is active"
+  - description: "Switch to the single iframe visible on the page"
+  - description: "Type the text 'Hello from single frame' into the input box"
+  - description: "Switch back to the top-level document"
+
+  # ---------- Nested Iframe ----------
+  - description: "Click the **Iframe with in an Iframe** tab"
+  - description: "Switch to the outer iframe displayed in this section"
+  - description: "Inside the outer iframe, switch to the inner iframe"
+  - description: "Type the text 'Hello from nested frame' into the input box"
+  - description: "Switch back to the top-level document"
+
+assertions:
+  - "The page title contains the word 'Frames'"
+  - "The input inside the single iframe contains the exact text 'Hello from single frame'"
+  - "The input inside the nested iframe contains the exact text 'Hello from nested frame'"
