@@ -115,11 +115,91 @@ def _after_fill_settle(page, el):
 
 def _run_action(page, atype, target, value):
     if atype == "navigate":
-        page.goto(value or target, wait_until="networkidle")
+        dest = (value or target or "").strip()
+        # Skip non-URL frame hints like "iframe" / "top-level document" or any non-URL human hint
+        try:
+            import re as _re
+            is_url = bool(_re.match(r"^(https?://|file://|about:|data:|/|[a-z0-9.-]+\.[a-z]{2,})", dest, _re.I))
+            if not is_url:
+                return None
+        except: pass
+        page.goto(dest, wait_until="networkidle")
 
     elif atype == "click":
         hint = (target or value or "")
-        el = _find_checkbox(page, hint) or find_clickable(page, hint)
+        # Calendar-aware shortcuts: operate inside an open datepicker if present
+        try:
+            import re as _re
+            containers = [
+                page.locator(".ui-datepicker:visible").first,
+                page.locator(".ui-datepicker-div").first,
+                page.locator(".datepick").first,
+            ]
+            cal = None
+            for c in containers:
+                try:
+                    if c and c.count() > 0 and c.first.is_visible():
+                        cal = c
+                        break
+                except:
+                    pass
+            if cal:
+                mh = hint.strip()
+                # Match Month YYYY
+                if _re.match(r"^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$", mh, _re.I):
+                    # Try up to 24 next/prev steps to reach requested month/year
+                    for _ in range(24):
+                        title = None
+                        try:
+                            title = (cal.locator(".ui-datepicker-title").first.text_content() or "").strip()
+                        except:
+                            pass
+                        if title and _re.search(_re.escape(mh), title, _re.I):
+                            break
+                        # Prefer Next button
+                        clicked = False
+                        for sel in [".ui-datepicker-next", "button[aria-label*='Next' i]", "button:has-text('›')"]:
+                            btn = cal.locator(sel).first
+                            if btn and btn.count() > 0 and btn.is_enabled():
+                                btn.click()
+                                clicked = True
+                                break
+                        if not clicked:
+                            for sel in [".ui-datepicker-prev", "button[aria-label*='Prev' i]", "button:has-text('‹')"]:
+                                btn = cal.locator(sel).first
+                                if btn and btn.count() > 0 and btn.is_enabled():
+                                    btn.click()
+                                    clicked = True
+                                    break
+                        page.wait_for_timeout(120)
+                    return None
+                # Match day like "15" or full date like "15 March 2026"
+                if _re.match(r"^\d{1,2}(\s+[A-Za-z]+\s+\d{4})?$", mh):
+                    day = _re.match(r"^(\d{1,2})", mh).group(1)
+                    # Prefer anchor cells
+                    cell = cal.locator(f".ui-datepicker-calendar td a:has-text('{day}')").first
+                    if cell and cell.count() > 0 and cell.is_visible():
+                        cell.click()
+                        return None
+                    cell = cal.get_by_text(_re.compile(f"^\s*{day}\s*$", _re.I)).first
+                    if cell and cell.count() > 0:
+                        cell.click()
+                        return None
+        except:
+            pass
+
+        try:
+            el = _find_checkbox(page, hint)
+        except:
+            el = None
+        if not el:
+            try:
+                from .healer import _find_radio as _find_radio_local
+                el = _find_radio_local(page, hint)
+            except:
+                el = None
+        if not el:
+            el = find_clickable(page, hint)
         if not el or (hasattr(el, "count") and el.count() == 0):
             el = find_in_frames(page, hint)
         if not el:
@@ -148,6 +228,17 @@ def _run_action(page, atype, target, value):
                             itype = "checkbox"
                 except:
                     pass
+            # If we didn't land on the <input type=radio>, try to find it near the element
+            if itype != "radio":
+                try:
+                    container = el.locator("xpath=ancestor-or-self::*[self::label or self::div or self::section][1]").first
+                    if container and container.count() > 0:
+                        rd = container.locator("input[type='radio']").first
+                        if rd and rd.count() > 0:
+                            el = rd
+                            itype = "radio"
+                except:
+                    pass
 
             if itype == "checkbox":
                 try:
@@ -168,6 +259,47 @@ def _run_action(page, atype, target, value):
                             return None
                     except:
                         pass
+            # Radios: click and verify checked; fallback to label
+            if itype == "radio" or role == "radio":
+                try:
+                    el.check()
+                    try:
+                        if hasattr(el, "is_checked") and not el.is_checked():
+                            lbl = el.locator("xpath=ancestor::label[1]").first
+                            if lbl and lbl.count() > 0:
+                                lbl.click()
+                                # re-verify
+                                try:
+                                    if hasattr(el, "is_checked") and not el.is_checked():
+                                        raise Exception("radio not checked after label click")
+                                except:
+                                    pass
+                    except:
+                        pass
+                    return None
+                except:
+                    try:
+                        lbl = el.locator("xpath=ancestor::label[1]").first
+                        if lbl and lbl.count() > 0:
+                            lbl.click()
+                            return None
+                    except:
+                        pass
+                # Final fallback: select by value token (male/female)
+                try:
+                    token = None
+                    hl = (hint or "").lower()
+                    if "male" in hl:
+                        token = "male"
+                    elif "female" in hl or "fe male" in hl or "feMale" in (hint or ""):
+                        token = "female"
+                    if token:
+                        alt = page.locator(f"input[type='radio'][value*='{token}' i]").first
+                        if alt and alt.count() > 0:
+                            alt.check()
+                            return None
+                except:
+                    pass
             elif role in ("checkbox", "switch") or has_aria_checked:
                 # ARIA widgets that toggle via click
                 el.click()
@@ -283,12 +415,35 @@ def _run_action(page, atype, target, value):
                     page.wait_for_selector(hint, state="visible")
             else:
                 # No element resolved via heuristics; fall back to raw selector/text
+                tried = False
+                # If hint looks like a CSS selector, search across frames
                 try:
                     import re as _re
-                    node = page.get_by_text(_re.compile(hint, _re.I)).first
-                    node.wait_for(state="visible")
+                    if _re.match(r"^[a-z0-9_\-\.#\[\]=:>'\"\s]+$", hint, _re.I):
+                        # top-level first
+                        loc = page.locator(hint).first
+                        if loc.count() > 0:
+                            loc.wait_for(state="visible")
+                            return None
+                        # then frames
+                        for fr in page.frames:
+                            try:
+                                loc = fr.locator(hint).first
+                                if loc.count() > 0:
+                                    loc.wait_for(state="visible")
+                                    return None
+                            except:
+                                pass
+                        tried = True
                 except:
-                    page.wait_for_selector(hint, state="visible")
+                    pass
+                if not tried:
+                    try:
+                        import re as _re
+                        node = page.get_by_text(_re.compile(hint, _re.I)).first
+                        node.wait_for(state="visible")
+                    except:
+                        page.wait_for_selector(hint, state="visible")
 
     elif atype == "assert_url_contains":
         ok, _ = assert_url_contains(page, value or target)
